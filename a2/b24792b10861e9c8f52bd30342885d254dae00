@@ -1,0 +1,71 @@
+lib/inngest/serve.rb
+  s_6d50d7ac572bde::t_65b9c4bd9edc7e 77
+lib/inngest.rb
+  s_6d50d7ac572bde::t_65b9c4bd9edc7e 10
+lib/generators/inngest/function/templates/function_test.rb.tt
+  s_6d50d7ac572bde::t_78da6c5191e2e5 1-18
+examples/functions.rb
+  s_6d50d7ac572bde::t_a9562190176344 124-129,131,134,136-140,142-147
+  s_6d50d7ac572bde::t_738523b497401d 130,132-133,135,141
+lib/inngest/function.rb
+  s_6d50d7ac572bde::t_65b9c4bd9edc7e 21-23,126-135,196,225,227,234,252-254,257
+lib/inngest/rspec.rb
+  s_6d50d7ac572bde::t_39ed70f7c4d462 1-19
+lib/inngest/middleware.rb
+  s_6d50d7ac572bde::t_4686e84550c3fe 1-113
+README.md
+  s_6d50d7ac572bde::t_72a6374e08e5dd 38-41,178-268
+  s_6d50d7ac572bde::t_a48cec1c42cb75 269
+lib/inngest/executor.rb
+  s_6d50d7ac572bde::t_94c5d7d1df2d45 37-44,55-57,62-63,69,73,82-84,86,88-90,92-96,98,102-106,127-133,173-174,203,208,213-281,297-308
+  s_6d50d7ac572bde::t_589bfa87c7e5c6 10-11
+spec/inngest/middleware_spec.rb
+  s_6d50d7ac572bde::t_fede9670fc96ff 1-249
+spec/generators/generators_spec.rb
+  s_6d50d7ac572bde::t_c0f5ee7186ab52 8,132-172
+  s_6d50d7ac572bde::t_de9e701e51adac 173
+spec/integration/serve_spec.rb
+  s_6d50d7ac572bde::t_42b92065a83f7f 10,27-28,34-35
+  s_6d50d7ac572bde::t_a9562190176344 32-33,36
+lib/inngest/testing.rb
+  s_6d50d7ac572bde::t_5343cec8f451c0 1-43,46-113,115-156,162-279,281,284-290,297-298,300-320
+  s_6d50d7ac572bde::t_1e0ddcde261e23 282-283
+  s_6d50d7ac572bde::t_7a79a9e86177e7 291-296,299
+  s_6d50d7ac572bde::t_7c283f87bd3ea3 114
+  s_6d50d7ac572bde::t_82c0b89899257e 44-45,157-161,280
+lib/inngest/client.rb
+  s_6d50d7ac572bde::t_c5650b8446bf41 30,42-44
+  s_6d50d7ac572bde::t_65b9c4bd9edc7e 20,27-28,39-40,52,74-79,82-96
+spec/integration/connect_spec.rb
+  s_6d50d7ac572bde::t_a9562190176344 33,36
+  s_6d50d7ac572bde::t_42b92065a83f7f 13,27-28,34-35
+  s_6d50d7ac572bde::t_e3ad0e5012c38f 37
+lib/generators/inngest/function/templates/function_spec.rb.tt
+  s_6d50d7ac572bde::t_78da6c5191e2e5 1-16
+lib/generators/inngest/function/function_generator.rb
+  s_6d50d7ac572bde::t_78da6c5191e2e5 16-17,23-33,36-55
+  s_6d50d7ac572bde::t_2d2280ee5be74e 56
+lib/inngest/step.rb
+  s_6d50d7ac572bde::t_65b9c4bd9edc7e 105
+spec/inngest/testing_spec.rb
+  s_6d50d7ac572bde::t_d0f3fed5e98421 1-113,115,117-166
+  s_6d50d7ac572bde::t_8d259463249a8b 114,116
+lib/inngest/connect/worker.rb
+  s_6d50d7ac572bde::t_65b9c4bd9edc7e 454
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a2b24792b10861e9c8f52bd30342885d254dae00",
+  "prompts": {},
+  "sessions": {
+    "s_6d50d7ac572bde": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0dcab9e3-c384-4d91-b1ca-895e512239f2",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ben Wyrosdick <ben.wyrosdick@gmail.com>"
+    }
+  }
+}
