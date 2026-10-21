@@ -1,0 +1,62 @@
+spec/integration/connect_spec.rb
+  s_6d50d7ac572bde::t_5121c42e8b5452 5,8,10,27,29
+  s_6d50d7ac572bde::t_560e12d51696ff 12
+lib/inngest/cli.rb
+  s_6d50d7ac572bde::t_3dc056390db357 22
+lib/inngest/function.rb
+  s_6d50d7ac572bde::t_3dc056390db357 144,187-193,204-205
+lib/inngest/serve.rb
+  s_6d50d7ac572bde::t_1efcd28c25f3c8 1-46,50-51,54-64,66-68,70-76,78-85,87-88,90-96,98-99,101-108,110-111,115-147,149-211,214-217,222-289
+  s_6d50d7ac572bde::t_721566264aab29 212-213,218-221
+  s_6d50d7ac572bde::t_4737e74ac0b603 47-49,52-53,65,69,77,86,89,97,100,109,112-114,148
+spec/inngest/serve_spec.rb
+  s_6d50d7ac572bde::t_fdcea1b4cf777a 191-192,225
+  s_6d50d7ac572bde::t_8ac729078e6d80 185-186
+  s_6d50d7ac572bde::t_84d9eb79611688 1-37,40-89,91-184,187-190,193-224,226-243
+  s_6d50d7ac572bde::t_ccdb62c4a27ac2 38-39,90
+spec/integration/serve_spec.rb
+  s_6d50d7ac572bde::t_5121c42e8b5452 1-8,10-30
+  s_6d50d7ac572bde::t_560e12d51696ff 9
+lib/inngest/signature.rb
+  s_6d50d7ac572bde::t_eb59d3551c85d8 1-60
+lib/inngest/http.rb
+  s_6d50d7ac572bde::t_5c8179a41e1c5e 50-51,53-54
+lib/inngest.rb
+  s_6d50d7ac572bde::t_3dc056390db357 12-13,20,44-52
+  s_6d50d7ac572bde::t_dd647328cc7ccb 53
+lib/inngest/railtie.rb
+  s_6d50d7ac572bde::t_3dc056390db357 11-21
+lib/inngest/executor.rb
+  s_6d50d7ac572bde::t_3dc056390db357 237-239
+Gemfile
+  s_6d50d7ac572bde::t_f7ee28ce31f4e8 7-9
+spec/inngest/support_spec.rb
+  s_6d50d7ac572bde::t_721566264aab29 23-26
+README.md
+  s_6d50d7ac572bde::t_424abf67862d39 6,8-16,189-228,243,259,263-267,279-280,284
+.rubocop.yml
+  s_6d50d7ac572bde::t_ccdb62c4a27ac2 34-37
+lib/inngest/jcs.rb
+  s_6d50d7ac572bde::t_f7ee28ce31f4e8 58
+  s_6d50d7ac572bde::t_9e9d6c3bf41fb2 1-57,59-73
+spec/integration/support/dev_server.rb
+  s_6d50d7ac572bde::t_79c9c425f5f3af 92-93,95-97
+  s_6d50d7ac572bde::t_560e12d51696ff 19-32,60,66-68,74-78
+  s_6d50d7ac572bde::t_5121c42e8b5452 1-18,33-59,61-65,69-73,79-91,94,98-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "334348d9bfe6a1496e8a9bf47ce8b18b99afaae2",
+  "prompts": {},
+  "sessions": {
+    "s_6d50d7ac572bde": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0dcab9e3-c384-4d91-b1ca-895e512239f2",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ben Wyrosdick <ben.wyrosdick@gmail.com>"
+    }
+  }
+}
