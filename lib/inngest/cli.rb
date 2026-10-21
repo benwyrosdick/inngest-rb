@@ -22,12 +22,11 @@ module Inngest
       functions = Inngest.functions
       raise ConfigError, "no Inngest functions found (subclass Inngest::Function and add a trigger)" if functions.empty?
 
-      warn_about_database_pool
       Connect::Worker.new(
         client: Inngest.client,
         functions: functions,
         instance_id: @options[:instance_id],
-        max_worker_concurrency: @options[:concurrency],
+        max_worker_concurrency: concurrency,
         shutdown_timeout: @options.fetch(:shutdown_timeout, 25),
         execution_wrapper: rails_execution_wrapper
       ).run
@@ -41,7 +40,8 @@ module Inngest
         opts.on("-r", "--require PATH", "File to load (default: config/environment.rb if present)") do |path|
           @options[:require] = path
         end
-        opts.on("-c", "--concurrency N", Integer, "Functions to run at once (default: 10)") do |n|
+        opts.on("-c", "--concurrency N", Integer,
+                "Functions to run at once (default: the database pool size, or 10)") do |n|
           @options[:concurrency] = n
         end
         opts.on("-i", "--instance-id ID", "Stable worker ID (default: hostname)") do |id|
@@ -80,17 +80,24 @@ module Inngest
       ->(&block) { Rails.application.reloader.wrap(&block) }
     end
 
-    def warn_about_database_pool
-      return unless defined?(ActiveRecord::Base)
-
-      concurrency = @options[:concurrency] || Integer(ENV.fetch("INNGEST_CONNECT_MAX_WORKER_CONCURRENCY", 10))
-      pool = ActiveRecord::Base.connection_pool.size
-      return if pool >= concurrency
+    # Each running function may hold a database connection, so without an
+    # explicit setting, concurrency defaults to the Active Record pool size.
+    def concurrency
+      explicit = @options[:concurrency] || ENV["INNGEST_CONNECT_MAX_WORKER_CONCURRENCY"]&.then { |v| Integer(v) }
+      pool = database_pool_size
+      return explicit || pool unless explicit && pool && explicit > pool
 
       Inngest.client.logger.warn(
-        "[inngest] concurrency (#{concurrency}) is larger than the database pool (#{pool}); " \
+        "[inngest] concurrency (#{explicit}) is larger than the database pool (#{pool}); " \
         "raise the pool size in config/database.yml or lower --concurrency"
       )
+      explicit
+    end
+
+    def database_pool_size
+      return unless defined?(ActiveRecord::Base)
+
+      ActiveRecord::Base.connection_pool.size
     rescue StandardError
       nil
     end

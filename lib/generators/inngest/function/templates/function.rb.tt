@@ -1,0 +1,25 @@
+# frozen_string_literal: true
+
+<% class_path.each_with_index do |mod, depth| -%>
+<%= "  " * depth %>module <%= mod.camelize %>
+<% end -%>
+<%= nested(<<~RUBY)
+class #{file_name.camelize} < Inngest::Function
+#{triggers.map { |line| "  #{line}" }.join("\n")}
+
+  def call
+    # Each step runs once and its result is saved, so it isn't repeated when
+    # the function retries or resumes. Code outside steps runs on every call,
+    # so keep side effects inside steps.
+    step.run("first-step") do
+      # Return JSON-compatible data (hashes with string keys, arrays, strings,
+      # numbers, booleans or nil).
+      { "event_data" => event.data }
+    end
+  end
+end
+RUBY
+-%>
+<% class_path.size.times.reverse_each do |depth| -%>
+<%= "  " * depth %>end
+<% end -%>

@@ -1,0 +1,24 @@
+# frozen_string_literal: true
+
+# Inngest settings. Keys and URLs come from environment variables:
+#
+#   INNGEST_SIGNING_KEY  required in production
+#   INNGEST_EVENT_KEY    required in production to send events
+#   INNGEST_DEV          set to 1 to use the local dev server
+#
+# Functions live in app/inngest. Send events with:
+#
+#   Inngest.send_event(name: "user/signed_up", data: { user_id: user.id })
+Inngest.configure(
+  # Keep this stable: changing it creates a new app in Inngest.
+  app_id: "<%= app_id %>",
+
+  # Use the local dev server (npx inngest-cli@latest dev) in development.
+  dev: Rails.env.development? || nil,
+
+  # Changes with each deploy so Inngest can handle rolling deploys.
+  # app_version: ENV["GIT_SHA"],
+
+  # Logs go to stdout by default, so a worker's output shows up in bin/dev.
+  # logger: Rails.logger,
+)

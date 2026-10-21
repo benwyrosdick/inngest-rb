@@ -17,7 +17,7 @@ Gem::Specification.new do |spec|
 
   spec.metadata["rubygems_mfa_required"] = "true"
 
-  spec.files = Dir["lib/**/*.rb", "exe/*", "proto/*.proto", "LICENSE", "README.md"]
+  spec.files = Dir["lib/**/*", "exe/*", "proto/*.proto", "LICENSE", "README.md"].select { |f| File.file?(f) }
   spec.bindir = "exe"
   spec.executables = ["inngest-connect"]
   spec.require_paths = ["lib"]

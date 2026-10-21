@@ -22,7 +22,20 @@ Functions can run in two ways, and both use the same function code:
 gem "inngest"
 ```
 
-Put functions in `app/inngest/`:
+```
+bin/rails generate inngest:install
+bin/rails generate inngest:function SendWelcomeEmail --event user/signed_up
+```
+
+The install generator does the following:
+- creates `config/initializers/inngest.rb`, which uses the local dev server in development
+- creates `app/inngest/`
+- adds a Connect worker to `Procfile` and `Procfile.dev`
+- adds the dev server to `Procfile.dev`
+
+Run `bin/rails generate inngest:install --mode=serve` to mount an HTTP endpoint instead of running a worker.
+
+Write the function:
 
 ```ruby
 # app/inngest/send_welcome_email.rb
@@ -45,16 +58,15 @@ Send events from anywhere in your app:
 Inngest.send_event(name: "user/signed_up", data: { user_id: user.id, account_id: user.account_id })
 ```
 
-Run a worker next to your web process:
+Run `bin/dev` to start the app, the worker and the dev server. The dev server UI at http://localhost:8288
+shows every run and step. In production, set `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY`, and run the worker
+next to your web process:
 
 ```
 # Procfile
 web: bundle exec puma -C config/puma.rb
-inngest: bundle exec inngest-connect --concurrency 10
+inngest: bundle exec inngest-connect
 ```
-
-For local development, start the dev server with `npx inngest-cli@latest dev` and set `INNGEST_DEV=1`. The
-dev server UI at http://localhost:8288 shows every run and step.
 
 ## How it works
 
@@ -164,13 +176,14 @@ If a step fails for good, `step.parallel` raises its `Inngest::StepError`.
 ```
 bundle exec inngest-connect [options]
   -r, --require PATH          File to load (default: config/environment.rb if present)
-  -c, --concurrency N         Functions to run at once (default: 10)
+  -c, --concurrency N         Functions to run at once (default: the database pool size, or 10)
   -i, --instance-id ID        Stable worker ID (default: hostname)
   -t, --shutdown-timeout S    Seconds to wait for running steps on shutdown (default: 25)
 ```
 
 In Rails, the CLI eager-loads the app to find every `Inngest::Function` subclass. Each execution runs inside
-the Rails reloader, like a Sidekiq job. Keep the database pool at least as large as `--concurrency`.
+the Rails reloader, like a Sidekiq job. With Active Record, concurrency defaults to the database pool size,
+since each running function may hold a connection.
 
 On `SIGTERM` or `SIGINT`, the worker stops taking new work and waits for running steps to finish. It delivers
 their results and then exits. Inngest retries any step that's still running at the timeout. If the connection
@@ -284,5 +297,5 @@ The library is split so the execution engine doesn't depend on a transport:
 - Streaming responses for serve mode, for platforms with short request timeouts
 - Middleware hooks and an RSpec test helper with mocked steps
 - `step.ai.infer` / `step.fetch`, checkpointing, realtime
-- Rails generators (`rails g inngest:install`, `rails g inngest:function`)
+- Generated specs for functions (once there's a test helper)
 - Readiness HTTP endpoint for Kubernetes probes
