@@ -10,7 +10,7 @@ require_relative "support/dev_server"
 RSpec.describe "Connect worker with the dev server", if: run_integration? do
   before(:all) do
     @client = Inngest::Client.new(app_id: "ruby-connect-integration", **integration_client_options,
-                                  logger: Logger.new($stdout, level: :warn))
+                                  middleware: [RequestInfoMiddleware], logger: Logger.new($stdout, level: :warn))
     @worker = Inngest::Connect::Worker.new(client: @client, functions: Inngest::Function.registered,
                                            shutdown_signals: [], health_port: 0, health_host: "127.0.0.1")
     @thread = Thread.new { @worker.run }
@@ -24,9 +24,16 @@ RSpec.describe "Connect worker with the dev server", if: run_integration? do
     @thread&.join(30)
   end
 
+  include DevServerHelpers
+
   def integration_client = @client
 
   it_behaves_like "an Inngest app"
+
+  it "runs middleware with the transport's request" do
+    expect(send_and_wait("demo/transport")["output"])
+      .to eq("transport" => "Inngest::Connect::Proto::GatewayExecutorRequestData", "middleware" => true)
+  end
 
   it "reports readiness and liveness over HTTP" do
     %w[/ready /live].each do |path|

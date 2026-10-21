@@ -121,3 +121,27 @@ class ParallelBranches < Inngest::Function
     )
   end
 end
+
+# Adds the transport's request class to every function's context.
+class RequestInfoMiddleware < Inngest::Middleware
+  def transform_input(input)
+    input.context[:transport] = request.class.name
+  end
+end
+
+# Marks a function's result.
+class MarkResultMiddleware < Inngest::Middleware
+  def transform_output(output)
+    output.data = output.data.merge("middleware" => true) if output.finished?
+  end
+end
+
+class ReportTransport < Inngest::Function
+  trigger event: "demo/transport"
+  middleware MarkResultMiddleware
+
+  def call
+    step.run("noop") { 1 }
+    { "transport" => context[:transport] }
+  end
+end

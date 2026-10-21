@@ -17,15 +17,17 @@ module Inngest
     DEV_SERVER_EVENT_KEY = "NO_EVENT_KEY_SET"
 
     attr_reader :app_id, :app_version, :env, :event_key, :signing_key, :signing_key_fallback,
-                :api_origin, :event_api_origin, :logger
+                :api_origin, :event_api_origin, :logger, :middleware
 
     # @param app_id [String] unique, stable ID for this app
     # @param app_version [String, nil] changes with each deploy (e.g. a git SHA)
     #   so Inngest can handle rolling deploys
     # @param dev [Boolean, String, nil] true (or a dev server URL) to use the
     #   local dev server; defaults to INNGEST_DEV, otherwise Inngest Cloud
+    # @param middleware [Array<Class>] Inngest::Middleware subclasses that run
+    #   for every function and event send
     def initialize(
-      app_id:,
+      app_id: nil,
       app_version: ENV.fetch("INNGEST_APP_VERSION", nil),
       dev: nil,
       env: ENV.fetch("INNGEST_ENV", nil),
@@ -34,9 +36,12 @@ module Inngest
       signing_key_fallback: ENV.fetch("INNGEST_SIGNING_KEY_FALLBACK", nil),
       api_base_url: nil,
       event_api_base_url: nil,
-      logger: nil
+      logger: nil,
+      middleware: []
     )
-      raise ConfigError, "app_id is required" if app_id.nil? || app_id.to_s.strip.empty?
+      if app_id.nil? || app_id.to_s.strip.empty?
+        raise ConfigError, "app_id is required (set INNGEST_APP_ID or call Inngest.configure(app_id: ...))"
+      end
 
       @app_id = app_id.to_s
       @app_version = app_version
@@ -44,6 +49,7 @@ module Inngest
       @signing_key = signing_key
       @signing_key_fallback = signing_key_fallback
       @logger = logger || default_logger
+      @middleware = Array(middleware)
 
       dev_origin = resolve_dev(dev.nil? ? ENV.fetch("INNGEST_DEV", nil) : dev)
       @dev = !dev_origin.nil?
@@ -65,8 +71,29 @@ module Inngest
     #
     #   client.send_event(name: "user/signed_up", data: { user_id: 1 })
     def send_event(*events)
+      deliver_events(events, middleware.map { |entry| Middleware.build(entry, client: self) })
+    end
+    alias send_events send_event
+
+    # Sends events, running the given middleware instances' send hooks.
+    def deliver_events(events, middleware_instances)
       events = events.flatten.map { |e| normalize_event(e) }
       return [] if events.empty?
+
+      middleware_instances.each { |m| m.before_send_events(events) }
+      begin
+        ids = post_events(events)
+      rescue StandardError => e
+        result = Middleware::SendResult.new(ids: e.respond_to?(:ids) ? e.ids : [], error: e)
+        middleware_instances.each { |m| m.after_send_events(result) }
+        raise
+      end
+      middleware_instances.each { |m| m.after_send_events(Middleware::SendResult.new(ids: ids, error: nil)) }
+      ids
+    end
+
+    # Posts events to the event API. Returns their IDs.
+    def post_events(events)
       raise ConfigError, "event key is required to send events (set INNGEST_EVENT_KEY)" if event_key.nil?
 
       headers = default_headers.merge("Content-Type" => "application/json")
@@ -82,7 +109,6 @@ module Inngest
 
       ids
     end
-    alias send_events send_event
 
     # Headers the SDK sends on every outgoing request.
     def default_headers

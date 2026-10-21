@@ -7,7 +7,7 @@ require_relative "support/dev_server"
 RSpec.describe "HTTP serve mode with the dev server", if: run_integration? do
   before(:all) do
     @client = Inngest::Client.new(app_id: "ruby-serve-integration", **integration_client_options,
-                                  logger: Logger.new($stdout, level: :warn))
+                                  middleware: [RequestInfoMiddleware], logger: Logger.new($stdout, level: :warn))
     app = Rack::URLMap.new("/api/inngest" => Inngest::Serve.new(client: @client,
                                                                 functions: Inngest::Function.registered))
     @server = Puma::Server.new(app, nil, min_threads: 0, max_threads: 16)
@@ -24,7 +24,14 @@ RSpec.describe "HTTP serve mode with the dev server", if: run_integration? do
     @server&.stop(true)
   end
 
+  include DevServerHelpers
+
   def integration_client = @client
 
   it_behaves_like "an Inngest app"
+
+  it "runs middleware with the transport's request" do
+    expect(send_and_wait("demo/transport")["output"])
+      .to eq("transport" => "Rack::Request", "middleware" => true)
+  end
 end

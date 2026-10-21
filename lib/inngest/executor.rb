@@ -7,8 +7,8 @@ module Inngest
   # Runs one call of a function: replays memoized steps, then either finishes
   # the function or stops at the first new step and reports it.
   #
-  # This class knows nothing about transports. Connect (and, later, an HTTP
-  # handler) turn the Result into a response.
+  # This class knows nothing about transports: Connect and the HTTP handler
+  # turn the Result into a response. It also runs middleware hooks.
   class Executor
     # status: 200 (function finished), 206 (steps reported) or 500 (error).
     # body: JSON string.
@@ -34,7 +34,14 @@ module Inngest
 
     # Thrown (not raised) to end a call from deep inside user code, carrying the
     # steps to report. `throw` is used so `rescue` in user code can't swallow it.
-    Interrupt = Struct.new(:ops)
+    # `step_run` is set when a step's block ran in this call.
+    Interrupt = Struct.new(:ops, :step_run)
+
+    # The outcome of running a step's block, before it's reported.
+    StepRun = Struct.new(:op, :output, :error)
+
+    # The function raised.
+    Failed = Struct.new(:error)
 
     # Thrown inside step.parallel when Inngest is targeting a step in a
     # different branch.
@@ -45,19 +52,25 @@ module Inngest
 
     attr_reader :client
 
+    # The exception the function raised, if any (used by Inngest::Testing).
+    attr_reader :error
+
     # @param payload [Hash] the parsed execution request body
     # @param step_id [String, nil] the step Inngest wants to run ("step" or nil
     #   means none in particular)
     # @param failure [Boolean] run the function's #on_failure handler
-    def initialize(client:, function_class:, payload:, step_id: nil, failure: false)
+    # @param request [Object] the transport's request, passed to middleware
+    def initialize(client:, function_class:, payload:, step_id: nil, failure: false, request: nil)
       @client = client
       @function_class = function_class
       @payload = payload
       @target_id = step_id == "step" ? nil : step_id
       @failure = failure
+      @request = request
       @step_counts = Hash.new(0)
       @in_step = false
       @parallel_depth = 0
+      @execution_started = false
       @tag = Object.new
     end
 
@@ -66,24 +79,29 @@ module Inngest
     end
 
     def call
+      @middleware = (client.middleware + @function_class.middleware_entries).map do |entry|
+        Middleware.build(entry, client: client, function: @function_class, request: @request)
+      end
       load_request
-      fn = @function_class.new(event: @event, events: @events, step: Step.new(self), run_id: @run_id,
-                               attempt: @attempt, logger: client.logger)
+      start_execution if @memos.empty?
 
-      outcome = catch(@tag) do
-        output = fn.inngest_dispatch(@failure ? :on_failure : :call)
-        # Inngest asked for a step we never reached.
-        report_not_found if @target_id
-        Completed.new(output)
-      end
+      outcome = run_function
+      start_execution
+      each_middleware(&:after_execution)
 
-      case outcome
-      when Completed then done(outcome.value)
-      when Interrupt then steps_result(outcome.ops)
-      else steps_result([{ "id" => @target_id, "op" => "StepNotFound" }])
-      end
+      output = middleware_output(outcome)
+      each_middleware { |m| m.transform_output(output) }
+      result = build_result(outcome, output)
+      each_middleware(&:before_response)
+      result
     rescue StandardError => e
+      @error ||= e
       error_result(e)
+    end
+
+    # Sends events with this call's middleware hooks.
+    def send_events(events)
+      client.deliver_events(events, @middleware)
     end
 
     # --- Called by Step ---
@@ -106,7 +124,13 @@ module Inngest
     # run now. Otherwise reports the step to Inngest, which ends this call.
     def resolve(op)
       memo = @memos.delete(op.id)
-      return memo if memo
+      if memo
+        # Once every stored step has been replayed, the code that follows is new.
+        start_execution if @memos.empty?
+        return memo
+      end
+
+      start_execution
 
       if @target_id
         if @target_id != op.id
@@ -146,7 +170,8 @@ module Inngest
           outcome = catch(@tag) { Completed.new(callable.call) }
           case outcome
           when Completed then results << outcome.value
-          when Interrupt then ops.concat(outcome.ops)
+          # A targeted step ran; report it right away.
+          when Interrupt then outcome.step_run ? throw(@tag, outcome) : ops.concat(outcome.ops)
           else skipped = true
           end
         end
@@ -175,16 +200,84 @@ module Inngest
       rescue NonRetriableError, RetryAfterError
         raise
       rescue StandardError => e
-        op.op = last_attempt? ? "StepFailed" : "StepError"
-        report([op.to_h.merge("error" => error_hash(e))])
+        throw @tag, Interrupt.new([op.to_h], StepRun.new(op, nil, e))
       ensure
         @in_step = false
       end
 
-      report([op.to_h.merge("data" => serialize(output, "step \"#{op.display_name}\""))])
+      throw @tag, Interrupt.new([op.to_h], StepRun.new(op, output, nil))
     end
 
     private
+
+    def run_function
+      fn = @function_class.new(event: @event, events: @events, step: Step.new(self), run_id: @run_id,
+                               attempt: @attempt, logger: client.logger, context: @context)
+      catch(@tag) do
+        output = fn.inngest_dispatch(@failure ? :on_failure : :call)
+        # Inngest asked for a step we never reached.
+        report_not_found if @target_id
+        Completed.new(output)
+      end
+    rescue StandardError => e
+      Failed.new(e)
+    end
+
+    # Runs after_memoization and before_execution, once, when the function
+    # reaches code that hasn't run before.
+    def start_execution
+      return if @execution_started
+
+      @execution_started = true
+      each_middleware(&:after_memoization)
+      each_middleware(&:before_execution)
+    end
+
+    def each_middleware(&)
+      @middleware.each(&)
+    end
+
+    def middleware_output(outcome)
+      case outcome
+      when Completed then Middleware::Output.new(data: outcome.value, finished: true)
+      when Failed then Middleware::Output.new(error: outcome.error, finished: true)
+      when Interrupt
+        run = outcome.step_run
+        return Middleware::Output.new unless run
+
+        step = Middleware::StepInfo.new(id: run.op.display_name, hashed_id: run.op.id)
+        Middleware::Output.new(data: run.output, error: run.error, step: step)
+      else Middleware::Output.new
+      end
+    end
+
+    # Turns the (possibly transformed) outcome into the response for Inngest.
+    def build_result(outcome, output)
+      case outcome
+      when Completed, Failed
+        if output.error
+          @error = output.error
+          error_result(output.error)
+        else
+          done(output.data)
+        end
+      when Interrupt
+        run = outcome.step_run
+        return steps_result(outcome.ops) unless run
+
+        steps_result([step_run_op(run.op, output)])
+      else steps_result([{ "id" => @target_id, "op" => "StepNotFound" }])
+      end
+    end
+
+    def step_run_op(op, output)
+      if output.error
+        op.op = last_attempt? ? "StepFailed" : "StepError"
+        op.to_h.merge("error" => error_hash(output.error))
+      else
+        op.to_h.merge("data" => serialize(output.data, "step \"#{op.display_name}\""))
+      end
+    end
 
     def load_request
       ctx = @payload["ctx"] || {}
@@ -201,10 +294,18 @@ module Inngest
         steps = client.api_get("/v0/runs/#{@run_id}/actions")
       end
 
-      @event = Event.from_h(@payload["event"])
-      @events = Array(events).map { |e| Event.from_h(e) }
-      @events = [@event].compact if @events.empty?
-      @memos = steps.to_h { |id, value| [id, parse_memo(id, value)] }
+      event = Event.from_h(@payload["event"])
+      events = Array(events).map { |e| Event.from_h(e) }
+      events = [event].compact if events.empty?
+
+      input = Middleware::Input.new(event: event, events: events, steps: steps.dup, context: {},
+                                    function: @function_class, run_id: @run_id, attempt: @attempt)
+      each_middleware { |m| m.transform_input(input) }
+
+      @event = input.event
+      @events = input.events
+      @context = input.context
+      @memos = input.steps.to_h { |id, value| [id, parse_memo(id, value)] }
     end
 
     # Most steps memoize { data } or { error }, but WaitForEvent memoizes the

@@ -1,0 +1,18 @@
+# frozen_string_literal: true
+
+require "test_helper"
+require "inngest/testing"
+
+class <%= class_name %>Test < ActiveSupport::TestCase
+  include Inngest::Testing::Helpers
+
+  test "returns the event's data" do
+    # Steps run for real. To skip a step's code, stub its result by step ID:
+    #   run_inngest_function(<%= class_name %>, event: ..., steps: { "first-step" => { ... } })
+    result = run_inngest_function(<%= class_name %>,
+                                  event: { name: <%= test_event.inspect %>, data: { "example" => true } })
+
+    assert result.completed?, -> { "function failed: #{result.error.inspect}" }
+    assert_equal({ "event_data" => { "example" => true } }, result.output)
+  end
+end

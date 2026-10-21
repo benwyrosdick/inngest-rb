@@ -35,6 +35,10 @@ The install generator does the following:
 
 Run `bin/rails generate inngest:install --mode=serve` to mount an HTTP endpoint instead of running a worker.
 
+The function generator creates `app/inngest/send_welcome_email.rb` and a test for it, written for RSpec or
+Minitest depending on your app (see [Testing](#testing)). Pass `--cron "0 9 * * *"` for a scheduled function,
+or `--skip-test` to skip the test.
+
 Write the function:
 
 ```ruby
@@ -170,6 +174,98 @@ If a step fails for good, `step.parallel` raises its `Inngest::StepError`.
 - `raise Inngest::NonRetriableError, "..."` fails right away, without retries.
 - `raise Inngest::RetryAfterError.new("rate limited", retry_after: 30)` retries no earlier than 30 seconds from
   now. You can also pass a `Time`.
+
+## Testing
+
+`Inngest::Testing.run` runs a function locally, the way Inngest would, without a server. Steps run for real
+unless you stub them by step ID, and sleeps finish immediately.
+
+```ruby
+# spec/rails_helper.rb
+require "inngest/rspec"
+
+RSpec.describe SendWelcomeEmail do
+  it "emails the user" do
+    result = run_inngest_function(described_class,
+      event: { name: "user/signed_up", data: { user_id: 1 } },
+      steps: { "load-user" => { "email" => "ada@example.com" } })   # stub: the block doesn't run
+
+    expect(result).to be_completed
+    expect(result.step("send-email")).to eq(...)
+    expect(result.events).to be_empty                                # events sent with step.send_event
+  end
+end
+```
+
+With Minitest, `include Inngest::Testing::Helpers` in your test case and use the same `run_inngest_function`.
+
+How the helper treats each kind of step:
+- **Stubs:** stub by step ID, or `"id:1"` for the second use of a repeated ID. A stub can be a value, an
+  exception (the step fails), or a Proc (called for the value).
+- **`step.wait_for_event`:** needs a stub. Pass an event hash, or `nil` for a timeout.
+- **`step.invoke`:** runs the invoked function locally unless stubbed.
+- **Retries:** failing steps and functions are retried up to the function's `retries`. Pass `max_attempts: 1`
+  to turn retries off.
+
+The result has:
+- `completed?` / `failed?`
+- `output` (as JSON)
+- `error` (the original exception, or an `Inngest::StepError` for a failed step)
+- `steps`, `step(id)` and `ran_step?(id)`
+- `events`
+
+`failure: true, error: SomeError.new("...")` runs a function's `#on_failure` handler.
+
+## Middleware
+
+Middleware runs code around every function call and event send, e.g. for logging, error reporting, tracing or
+setting up context:
+
+```ruby
+class TenantMiddleware < Inngest::Middleware
+  def transform_input(input)
+    input.context[:tenant] = Tenant.find(input.event.data["tenant_id"])
+  end
+
+  def transform_output(output)
+    ErrorTracker.report(output.error) if output.error
+  end
+end
+
+Inngest.configure(app_id: "shop", middleware: [TenantMiddleware])   # every function
+
+class SyncOrders < Inngest::Function
+  middleware AuditMiddleware                                          # this function only
+  trigger event: "orders/sync"
+
+  def call(tenant:)                                                   # values from input.context
+    # ...
+  end
+end
+```
+
+A new instance is created for each call, with `client`, `function` and `request` available. The `request` is a
+`Rack::Request` in serve mode, or the gateway's request message with Connect. Client middleware runs before
+function middleware, in the order added.
+
+Each call runs these hooks once, in order:
+
+| Hook | When | Can change |
+| --- | --- | --- |
+| `transform_input(input)` | Before the function runs | `input.event`, `input.events`, stored step results (`input.steps`), and `input.context`, which the function sees as `context[...]` or keyword arguments |
+| `after_memoization` | Stored steps have been replayed | |
+| `before_execution` | New code is about to run | |
+| `after_execution` | The new code stopped | |
+| `transform_output(output)` | After a function or step returns or raises | `output.data`, `output.error` |
+| `before_response` | Before the result goes to Inngest | |
+
+In `transform_output`:
+- `output.finished?` is true for the function's own result.
+- `output.step` is set when a step ran.
+- When neither applies, the call only scheduled new steps.
+
+`before_send_events(events)` can change events before they're sent, both from `Inngest.send_event` and
+`step.send_event`. `after_send_events(result)` gets the IDs and any error.
 
 ## Running workers
 
@@ -330,6 +426,4 @@ The library is split so the execution engine doesn't depend on a transport:
 ## Roadmap
 
 - Streaming responses for serve mode, for platforms with short request timeouts
-- Middleware hooks and an RSpec test helper with mocked steps
 - `step.ai.infer` / `step.fetch`, checkpointing, realtime
-- Generated specs for functions (once there's a test helper)

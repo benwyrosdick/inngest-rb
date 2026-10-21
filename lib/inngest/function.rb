@@ -18,8 +18,9 @@ module Inngest
   #   end
   #
   # Inside #call (and #on_failure), `event`, `events`, `step`, `run_id`,
-  # `attempt` and `logger` are available. #call may also declare any of them
-  # as keyword arguments instead: `def call(event:, step:)`.
+  # `attempt`, `logger` and `context` (values added by middleware) are
+  # available. #call may also declare any of them, or any context key, as
+  # keyword arguments instead: `def call(event:, step:, tenant:)`.
   #
   # Code outside of steps runs again every time Inngest calls the function, so
   # it must be deterministic. Put side effects and anything non-deterministic
@@ -122,6 +123,16 @@ module Inngest
         options["singleton"] = { "mode" => mode.to_s, "key" => key }.compact
       end
 
+      # Adds middleware (Inngest::Middleware subclasses) that runs only for this
+      # function, after the client's middleware.
+      def middleware(*entries)
+        middleware_entries.concat(entries)
+      end
+
+      def middleware_entries
+        @middleware_entries ||= []
+      end
+
       def options
         @options ||= {}
       end
@@ -182,6 +193,7 @@ module Inngest
         # Let subclasses inherit configuration from abstract base classes.
         subclass.instance_variable_set(:@options, Marshal.load(Marshal.dump(options)))
         subclass.instance_variable_set(:@triggers, triggers.map(&:dup))
+        subclass.instance_variable_set(:@middleware_entries, middleware_entries.dup)
       end
 
       # After a code reload, replaced classes linger until garbage collected.
@@ -210,15 +222,16 @@ module Inngest
       end
     end
 
-    attr_reader :event, :events, :step, :run_id, :attempt, :logger
+    attr_reader :event, :events, :step, :run_id, :attempt, :logger, :context
 
-    def initialize(event:, events:, step:, run_id:, attempt:, logger:)
+    def initialize(event:, events:, step:, run_id:, attempt:, logger:, context: {})
       @event = event
       @events = events
       @step = step
       @run_id = run_id
       @attempt = attempt
       @logger = logger
+      @context = context
     end
 
     def call
@@ -236,10 +249,12 @@ module Inngest
       params = method.parameters
       return public_send(method_name) if params.empty?
 
+      available = CONTEXT_KEYWORDS.to_h { |key| [key, public_send(key)] }
+      available = context.transform_keys(&:to_sym).merge(available)
+
       accepts_all = params.any? { |type, _| type == :keyrest }
       declared = params.filter_map { |type, name| name if %i[key keyreq].include?(type) }
-      keys = accepts_all ? CONTEXT_KEYWORDS : CONTEXT_KEYWORDS & declared
-      public_send(method_name, **keys.to_h { |key| [key, public_send(key)] })
+      public_send(method_name, **(accepts_all ? available : available.slice(*declared)))
     end
   end
 end

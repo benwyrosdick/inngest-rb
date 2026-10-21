@@ -102,7 +102,7 @@ module Inngest
 
     # Sends events as a retriable, memoized step. Returns the event IDs.
     def send_event(id, *events)
-      run(id) { @execution.client.send_event(*events) }
+      run(id) { @execution.send_events(events) }
     end
   end
 end

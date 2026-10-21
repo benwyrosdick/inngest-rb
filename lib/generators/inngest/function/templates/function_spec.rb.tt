@@ -1,0 +1,16 @@
+# frozen_string_literal: true
+
+require "<%= spec_helper %>"
+require "inngest/rspec"
+
+RSpec.describe <%= class_name %> do
+  it "returns the event's data" do
+    # Steps run for real. To skip a step's code, stub its result by step ID:
+    #   run_inngest_function(described_class, event: ..., steps: { "first-step" => { ... } })
+    result = run_inngest_function(described_class,
+                                  event: { name: <%= test_event.inspect %>, data: { "example" => true } })
+
+    expect(result).to be_completed
+    expect(result.output).to eq({ "event_data" => { "example" => true } })
+  end
+end

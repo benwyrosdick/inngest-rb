@@ -451,7 +451,7 @@ module Inngest
           # takes effect.
           function_class = Object.const_get(function_class.name) if function_class.name
           Executor.new(client: client, function_class: function_class, payload: payload, step_id: step_id,
-                       failure: failure).call
+                       failure: failure, request: request).call
         end
       rescue StandardError => e
         @logger.error("[inngest] failed to run #{request.function_slug}: #{e.class}: #{e.message}")

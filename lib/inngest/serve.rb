@@ -74,7 +74,7 @@ module Inngest
       end
 
       result = Executor.new(client: client, function_class: function_class, payload: JSON.parse(body),
-                            step_id: query["stepId"], failure: failure).call
+                            step_id: query["stepId"], failure: failure, request: request).call
 
       headers = { "X-Inngest-No-Retry" => result.no_retry.to_s }
       headers["Retry-After"] = result.retry_after if result.retry_after
