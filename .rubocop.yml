@@ -6,9 +6,6 @@ AllCops:
     - "lib/inngest/connect/proto/**/*"
     - "vendor/**/*"
 
-Style/Documentation:
-  Exclude:
-    - "spec/**/*"
 Style/StringLiterals:
   EnforcedStyle: double_quotes
 Layout/LineLength:
@@ -33,4 +30,8 @@ Style/OneClassPerFile:
 Style/Documentation:
   Exclude:
     - "examples/**/*"
+    - "spec/**/*"
+# Anonymous Inngest::Function classes in specs each define #call.
+Lint/DuplicateMethods:
+  Exclude:
     - "spec/**/*"

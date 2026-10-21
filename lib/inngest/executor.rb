@@ -234,7 +234,9 @@ module Inngest
     end
 
     def steps_result(ops)
-      Result.new(status: 206, body: JSON.generate(ops), no_retry: false)
+      # A step that failed for good shouldn't be retried.
+      no_retry = ops.size == 1 && ops.first["op"] == "StepFailed"
+      Result.new(status: 206, body: JSON.generate(ops), no_retry: no_retry)
     end
 
     def done(output)

@@ -20,9 +20,10 @@ RSpec.describe Inngest::Duration do
 end
 
 RSpec.describe Inngest::HTTP do
-  it "hashes signing keys without their prefix" do
-    key = "signkey-prod-12345678"
-    expect(described_class.hash_signing_key(key)).to eq(Digest::SHA256.hexdigest(["12345678"].pack("H*")))
+  it "hashes signing keys, keeping their prefix" do
+    # The example from the SDK spec.
+    expect(described_class.hash_signing_key("signkey-prod-12345678"))
+      .to eq("signkey-prod-b2ed992186a5cb19f6668aade821f502c1d00970dfd0e35128d51bac4649916c")
   end
 end
 

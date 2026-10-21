@@ -19,7 +19,7 @@ module Inngest
       boot_app
       require "inngest/connect"
 
-      functions = Function.registered
+      functions = Inngest.functions
       raise ConfigError, "no Inngest functions found (subclass Inngest::Function and add a trigger)" if functions.empty?
 
       warn_about_database_pool

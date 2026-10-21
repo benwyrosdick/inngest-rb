@@ -3,12 +3,17 @@
 A Ruby SDK for [Inngest](https://www.inngest.com): durable functions with retriable steps, sleeps, waits and
 flow control. Rails comes first, but the SDK works in any Ruby 3.2+ app.
 
-Functions run on **Connect** workers. A Connect worker is a long-running process with an outbound WebSocket to
-Inngest, similar to a Sidekiq process. Your app doesn't expose an HTTP endpoint, there are no request timeouts,
-and functions sync automatically when the worker connects.
+Functions can run in two ways, and both use the same function code:
 
-> **Status:** early. The core execution model and Connect protocol work end to end against the Inngest dev
-> server. See [Roadmap](#roadmap) for what's still missing.
+- **Connect workers** (recommended): a long-running process with an outbound WebSocket to Inngest, similar to
+  a Sidekiq process. Your app doesn't expose an endpoint, there are no request timeouts, and functions sync
+  automatically when the worker connects.
+- **HTTP serve mode:** a Rack endpoint that Inngest calls. Use this when you can't run long-lived processes,
+  e.g. on serverless platforms. See [Serving over HTTP](#serving-over-http).
+
+> **Status:** early. Both modes work end to end against the Inngest dev server and a self-hosted Inngest
+> server with signing keys. They haven't yet been run against Inngest Cloud. See [Roadmap](#roadmap) for
+> what's still missing.
 
 ## Quick start (Rails)
 
@@ -181,6 +186,46 @@ Inngest::Connect::Worker.new(client: client, functions: [SendWelcomeEmail]).run
 
 `Worker#ready?` reports whether the worker is connected, which you can use for a readiness probe.
 
+## Serving over HTTP
+
+Mount `Inngest::Serve`, a Rack app, wherever Inngest can reach it:
+
+```ruby
+# config/routes.rb
+mount Inngest::Serve.new => "/api/inngest"
+```
+
+```ruby
+# config.ru for Sinatra, Roda, Hanami, etc.
+map("/api/inngest") { run Inngest::Serve.new(functions: [SendWelcomeEmail]) }
+```
+
+By default `Inngest::Serve` serves every `Inngest::Function` subclass. In Rails development, where code loads
+lazily, it loads `app/inngest/` first. Pass `functions:` to choose which functions to serve.
+
+Sync your functions after each deploy by sending a `PUT` to the endpoint, or by adding the URL in the Inngest
+dashboard:
+
+```
+curl -X PUT https://example.com/api/inngest
+```
+
+For local development, run the dev server with `npx inngest-cli@latest dev -u http://localhost:3000/api/inngest`.
+
+The endpoint handles everything the [SDK spec](https://github.com/inngest/inngest/blob/main/docs/SDK_SPEC.md)
+requires:
+- **Requests:** verifies Inngest's request signatures (with the fallback key during rotation) and signs its
+  responses.
+- **Syncing:** registers functions, supports in-band sync, and answers trust probes.
+- **Health checks:** a `GET` returns a health check that includes private details only when the request is
+  signed.
+
+If Inngest reaches your app through a proxy or a different hostname, set `INNGEST_SERVE_ORIGIN` (e.g.
+`https://example.com`) and `INNGEST_SERVE_PATH`. You can also pass `serve_origin:` and `serve_path:`.
+
+Each step is a separate request, so a step holds a web server thread for as long as it runs. Keep steps short,
+or use a Connect worker.
+
 ## Configuration
 
 | Variable | Purpose |
@@ -195,6 +240,7 @@ Inngest::Connect::Worker.new(client: client, functions: [SendWelcomeEmail]).run
 | `INNGEST_BASE_URL`, `INNGEST_API_BASE_URL`, `INNGEST_EVENT_API_BASE_URL` | Override API origins (e.g. for self-hosting). |
 | `INNGEST_CONNECT_MAX_WORKER_CONCURRENCY` | Default for `--concurrency`. |
 | `INNGEST_CONNECT_INSTANCE_ID` | Default for `--instance-id`. |
+| `INNGEST_SERVE_ORIGIN`, `INNGEST_SERVE_PATH` | Public URL of the serve endpoint, if it differs from what the app sees. |
 | `INNGEST_LOG_LEVEL` | Log level for the default logger. |
 
 Or configure in code, for example in an initializer:
@@ -210,9 +256,14 @@ bundle install
 bundle exec rake            # unit specs
 bundle exec rubocop
 
-# End-to-end specs against a fresh dev server
+# End-to-end specs (Connect and HTTP serve) against a fresh dev server
 npx inngest-cli@latest dev --no-discovery --no-poll
 bundle exec rake spec:integration
+
+# The same specs with signed requests and authentication, against self-hosted Inngest
+inngest start --signing-key <hex> --event-key <key>
+INNGEST_INTEGRATION_SIGNING_KEY=signkey-prod-<hex> INNGEST_INTEGRATION_EVENT_KEY=<key> \
+  bundle exec rake spec:integration
 
 # Regenerate protobuf classes after updating proto/connect.proto (needs protoc)
 bundle exec rake proto
@@ -225,12 +276,12 @@ The library is split so the execution engine doesn't depend on a transport:
 - `Inngest::Connect::Worker` implements the Connect protocol: the start request, handshake, heartbeats, lease
   extension, reply acks with HTTP flush fallback, gateway draining, reconnect with backoff, and graceful
   shutdown.
-
-An HTTP "serve" handler can reuse `Executor` as-is.
+- `Inngest::Serve` is the HTTP transport: sync, introspection, signature checks (`Inngest::Signature`, with
+  RFC 8785 canonical JSON in `Inngest::JCS`) and responses.
 
 ## Roadmap
 
-- HTTP serve mode (Rack handler / Rails engine) for platforms that can't run long-lived workers
+- Streaming responses for serve mode, for platforms with short request timeouts
 - Middleware hooks and an RSpec test helper with mocked steps
 - `step.ai.infer` / `step.fetch`, checkpointing, realtime
 - Rails generators (`rails g inngest:install`, `rails g inngest:function`)

@@ -141,7 +141,7 @@ module Inngest
 
       # All loaded subclasses that have at least one trigger.
       def registered
-        Function.all_subclasses.select { |klass| klass.triggers.any? }
+        Function.all_subclasses.select { |klass| klass.triggers.any? && current?(klass) }
       end
 
       def all_subclasses
@@ -184,6 +184,13 @@ module Inngest
         subclass.instance_variable_set(:@triggers, triggers.map(&:dup))
       end
 
+      # After a code reload, replaced classes linger until garbage collected.
+      def current?(klass)
+        klass.name.nil? || (Object.const_defined?(klass.name) && Object.const_get(klass.name).equal?(klass))
+      rescue NameError
+        false
+      end
+
       def default_id
         raise ConfigError, "anonymous Inngest functions must set an id" if name.nil?
 
@@ -194,7 +201,8 @@ module Inngest
       end
 
       def root_step(function_id, url, retries)
-        runtime_url = "#{url}?#{URI.encode_www_form(fnId: function_id, stepId: "step")}"
+        separator = url.include?("?") ? "&" : "?"
+        runtime_url = "#{url}#{separator}#{URI.encode_www_form(fnId: function_id, stepId: "step")}"
         type = url.start_with?("ws") ? "ws" : "http"
         step = { "id" => "step", "name" => "step", "runtime" => { "type" => type, "url" => runtime_url } }
         step["retries"] = { "attempts" => retries } if retries

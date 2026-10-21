@@ -9,12 +9,15 @@ require_relative "inngest/client"
 require_relative "inngest/function"
 require_relative "inngest/step"
 require_relative "inngest/executor"
+require_relative "inngest/jcs"
+require_relative "inngest/signature"
 
 # Ruby SDK for Inngest (https://www.inngest.com).
 module Inngest
   # Loaded on demand so apps that only send events don't load protobuf.
   autoload :Connect, "inngest/connect"
   autoload :CLI, "inngest/cli"
+  autoload :Serve, "inngest/serve"
 
   class << self
     attr_writer :client
@@ -37,6 +40,16 @@ module Inngest
       client.send_event(*events)
     end
     alias send_events send_event
+
+    # Called before listing functions, to make sure they're loaded. The Railtie
+    # sets this to load app/inngest when Rails loads code lazily.
+    attr_accessor :function_loader
+
+    # Every loaded Inngest::Function subclass with a trigger.
+    def functions
+      function_loader&.call
+      Function.registered
+    end
 
     # Options merged into the default client; the Railtie fills these in.
     def default_client_options

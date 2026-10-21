@@ -47,11 +47,11 @@ module Inngest
       response
     end
 
-    # Signing keys are sent as the SHA-256 of the key's hex bytes, with the
-    # "signkey-<env>-" prefix removed.
+    # Signing keys are sent as their "signkey-<env>-" prefix followed by the
+    # SHA-256 of the rest of the key's hex bytes.
     def hash_signing_key(key)
-      raw = key.sub(/\Asignkey-\w+-/, "")
-      Digest::SHA256.hexdigest([raw].pack("H*"))
+      prefix = key[/\Asignkey-\w+-/].to_s
+      prefix + Digest::SHA256.hexdigest([key.delete_prefix(prefix)].pack("H*"))
     end
   end
 end
