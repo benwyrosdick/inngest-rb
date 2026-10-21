@@ -1,0 +1,30 @@
+lib/inngest/step.rb
+  s_6d50d7ac572bde::t_0d4a8fe81af027 96-98
+  s_6d50d7ac572bde::t_6a94fa010c8c34 77-95,99-102
+spec/inngest/parallel_spec.rb
+  s_6d50d7ac572bde::t_2d3e19aa312562 1-160
+spec/integration/connect_spec.rb
+  s_6d50d7ac572bde::t_2dcb2db5f4a9de 90-101
+README.md
+  s_6d50d7ac572bde::t_b3e78c2c2c6829 127-148
+lib/inngest/executor.rb
+  s_6d50d7ac572bde::t_6a94fa010c8c34 35-44,60,73,76-83,112-117,121-123,131-169,224-227,229-237
+examples/functions.rb
+  s_6d50d7ac572bde::t_4acd2192a58115 88-123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8ba6d535bcc865cf4866c5f935946190df400764",
+  "prompts": {},
+  "sessions": {
+    "s_6d50d7ac572bde": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0dcab9e3-c384-4d91-b1ca-895e512239f2",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ben Wyrosdick <ben.wyrosdick@gmail.com>"
+    }
+  }
+}
