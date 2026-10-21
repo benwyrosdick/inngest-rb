@@ -4,6 +4,7 @@ require "google/protobuf"
 require_relative "connect/proto/connect_pb"
 require_relative "connect/connection"
 require_relative "connect/reply_buffer"
+require_relative "connect/health_server"
 require_relative "connect/worker"
 
 module Inngest

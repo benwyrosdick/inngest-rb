@@ -179,6 +179,8 @@ bundle exec inngest-connect [options]
   -c, --concurrency N         Functions to run at once (default: the database pool size, or 10)
   -i, --instance-id ID        Stable worker ID (default: hostname)
   -t, --shutdown-timeout S    Seconds to wait for running steps on shutdown (default: 25)
+      --health-port PORT      Serve /ready and /live for Kubernetes probes on PORT
+      --health-host HOST      Address for health checks (default: 0.0.0.0)
 ```
 
 In Rails, the CLI eager-loads the app to find every `Inngest::Function` subclass. Each execution runs inside
@@ -197,7 +199,39 @@ client = Inngest::Client.new(app_id: "my-app")
 Inngest::Connect::Worker.new(client: client, functions: [SendWelcomeEmail]).run
 ```
 
-`Worker#ready?` reports whether the worker is connected, which you can use for a readiness probe.
+### Kubernetes
+
+With `--health-port`, the worker serves two probe endpoints, each with a small JSON status body:
+
+| Endpoint | 200 when | 503 when |
+| --- | --- | --- |
+| `/ready` | Connected to Inngest and taking work | Connecting, reconnecting or shutting down |
+| `/live` | The worker is running normally | Its background work has stalled for over 60 seconds |
+
+`/readyz`, `/livez` and `/healthz` also work.
+
+```yaml
+containers:
+  - name: inngest-worker
+    command: ["bundle", "exec", "inngest-connect", "--health-port", "9394"]
+    env:
+      - name: INNGEST_CONNECT_INSTANCE_ID   # a stable name per pod
+        valueFrom: { fieldRef: { fieldPath: metadata.name } }
+    readinessProbe:
+      httpGet: { path: /ready, port: 9394 }
+      periodSeconds: 5
+    livenessProbe:
+      httpGet: { path: /live, port: 9394 }
+      periodSeconds: 15
+      failureThreshold: 4
+terminationGracePeriodSeconds: 30   # longer than --shutdown-timeout (25s)
+```
+
+A worker that loses its connection keeps passing liveness while it reconnects on its own, so Kubernetes won't
+restart it. Readiness marks the pod as not ready in the meantime, which keeps rolling deploys from moving on
+until new workers have connected. On `SIGTERM`, readiness turns 503 right away while running steps finish.
+
+Outside Kubernetes, `Worker#ready?`, `Worker#alive?` and `Worker#health` give the same information.
 
 ## Serving over HTTP
 
@@ -253,6 +287,7 @@ or use a Connect worker.
 | `INNGEST_BASE_URL`, `INNGEST_API_BASE_URL`, `INNGEST_EVENT_API_BASE_URL` | Override API origins (e.g. for self-hosting). |
 | `INNGEST_CONNECT_MAX_WORKER_CONCURRENCY` | Default for `--concurrency`. |
 | `INNGEST_CONNECT_INSTANCE_ID` | Default for `--instance-id`. |
+| `INNGEST_CONNECT_HEALTH_PORT`, `INNGEST_CONNECT_HEALTH_HOST` | Defaults for `--health-port` and `--health-host`. |
 | `INNGEST_SERVE_ORIGIN`, `INNGEST_SERVE_PATH` | Public URL of the serve endpoint, if it differs from what the app sees. |
 | `INNGEST_LOG_LEVEL` | Log level for the default logger. |
 
@@ -298,4 +333,3 @@ The library is split so the execution engine doesn't depend on a transport:
 - Middleware hooks and an RSpec test helper with mocked steps
 - `step.ai.infer` / `step.fetch`, checkpointing, realtime
 - Generated specs for functions (once there's a test helper)
-- Readiness HTTP endpoint for Kubernetes probes

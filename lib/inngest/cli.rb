@@ -28,7 +28,8 @@ module Inngest
         instance_id: @options[:instance_id],
         max_worker_concurrency: concurrency,
         shutdown_timeout: @options.fetch(:shutdown_timeout, 25),
-        execution_wrapper: rails_execution_wrapper
+        execution_wrapper: rails_execution_wrapper,
+        **health_options
       ).run
     end
 
@@ -50,11 +51,21 @@ module Inngest
         opts.on("-t", "--shutdown-timeout SECONDS", Float, "Seconds to wait for running steps (default: 25)") do |s|
           @options[:shutdown_timeout] = s
         end
+        opts.on("--health-port PORT", Integer, "Serve /ready and /live for Kubernetes probes on PORT") do |port|
+          @options[:health_port] = port
+        end
+        opts.on("--health-host HOST", "Address for health checks (default: 0.0.0.0)") do |host|
+          @options[:health_host] = host
+        end
         opts.on("-v", "--version", "Print the version") do
           puts "inngest #{VERSION}"
           exit
         end
       end.parse!(@argv)
+    end
+
+    def health_options
+      @options.slice(:health_port, :health_host)
     end
 
     def boot_app

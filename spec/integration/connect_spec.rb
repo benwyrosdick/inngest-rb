@@ -12,7 +12,7 @@ RSpec.describe "Connect worker with the dev server", if: run_integration? do
     @client = Inngest::Client.new(app_id: "ruby-connect-integration", **integration_client_options,
                                   logger: Logger.new($stdout, level: :warn))
     @worker = Inngest::Connect::Worker.new(client: @client, functions: Inngest::Function.registered,
-                                           shutdown_signals: [])
+                                           shutdown_signals: [], health_port: 0, health_host: "127.0.0.1")
     @thread = Thread.new { @worker.run }
     deadline = Time.now + 15
     sleep 0.1 until @worker.ready? || Time.now > deadline
@@ -27,4 +27,13 @@ RSpec.describe "Connect worker with the dev server", if: run_integration? do
   def integration_client = @client
 
   it_behaves_like "an Inngest app"
+
+  it "reports readiness and liveness over HTTP" do
+    %w[/ready /live].each do |path|
+      response = Net::HTTP.get_response(URI("http://127.0.0.1:#{@worker.health_port}#{path}"))
+      expect(response.code).to eq("200")
+      expect(JSON.parse(response.body)).to include("status" => "active", "ready" => true, "alive" => true,
+                                                   "app_id" => "ruby-connect-integration")
+    end
+  end
 end

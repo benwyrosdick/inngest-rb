@@ -27,6 +27,8 @@ module Inngest
       # Seconds to wait between reconnect attempts.
       BACKOFF = [1, 2, 5, 10, 20, 30, 60, 120, 300].freeze
       HANDSHAKE_TIMEOUT = 20
+      # The worker counts as dead if its ticker hasn't run for this long.
+      LIVENESS_TIMEOUT = 60
       DEFAULT_INTERVAL = 10
       MAX_FLUSH_ATTEMPTS = 5
       REQUEST_VERSION = 2
@@ -36,7 +38,7 @@ module Inngest
 
       InFlight = Struct.new(:request, :lease_id, :extend_lease, :extend_at)
 
-      attr_reader :client, :instance_id, :max_worker_concurrency, :state
+      attr_reader :client, :instance_id, :max_worker_concurrency
 
       # @param functions [Array<Class>] Inngest::Function subclasses to serve
       # @param instance_id [String] stable ID for this worker (defaults to the
@@ -49,6 +51,9 @@ module Inngest
       #   Rails.application.executor; called with a block
       # @param rewrite_gateway_endpoint [#call] rewrites the gateway URL (e.g.
       #   for a proxy or self-hosted gateway)
+      # @param health_port [Integer, nil] serve /ready and /live on this port
+      #   for Kubernetes probes; disabled when nil
+      # @param health_host [String] address for the health check server
       def initialize(
         client:,
         functions: Function.registered,
@@ -57,7 +62,9 @@ module Inngest
         shutdown_timeout: 25,
         shutdown_signals: %w[INT TERM],
         execution_wrapper: nil,
-        rewrite_gateway_endpoint: nil
+        rewrite_gateway_endpoint: nil,
+        health_port: ENV.fetch("INNGEST_CONNECT_HEALTH_PORT", nil),
+        health_host: ENV.fetch("INNGEST_CONNECT_HEALTH_HOST", "0.0.0.0")
       )
         @client = client
         @logger = client.logger
@@ -72,6 +79,9 @@ module Inngest
         @rewrite_gateway_endpoint = rewrite_gateway_endpoint
         @function_classes = functions
         @functions = index_functions(functions)
+        if health_port && !health_port.to_s.empty?
+          @health_server = HealthServer.new(self, port: health_port, host: health_host, logger: @logger)
+        end
 
         @state = :init
         @events = Queue.new
@@ -100,8 +110,10 @@ module Inngest
                      "#{client.dev? ? "dev server" : "cloud"} #{client.api_origin})")
         install_signal_handlers
         start_threads
+        @health_server&.start
         connect_loop
       ensure
+        @health_server&.stop
         stop_threads
         restore_signal_handlers
         @state = :closed
@@ -113,9 +125,46 @@ module Inngest
         @events << [:shutdown]
       end
 
+      # :init, :connecting, :active, :reconnecting, :closing or :closed.
+      def state
+        # While a draining gateway is being replaced, the worker stays active
+        # only as long as the old connection is still open.
+        return :reconnecting if @state == :active && !@active&.ready?
+
+        @state
+      end
+
       # True when connected and accepting work. Suitable for a readiness probe.
       def ready?
-        @state == :active
+        state == :active
+      end
+
+      # True while the worker is running and its background work hasn't
+      # stalled. Suitable for a liveness probe: if this is false, restart the
+      # process.
+      def alive?
+        return false if %i[init closed].include?(@state)
+
+        !!@ticker&.alive? && monotonic_now - @last_tick_at < LIVENESS_TIMEOUT
+      end
+
+      # The port of the health check server, if it's running.
+      def health_port
+        @health_server&.port
+      end
+
+      # Worker status, as reported by the health check server.
+      def health
+        {
+          "status" => state.to_s,
+          "ready" => ready?,
+          "alive" => alive?,
+          "app_id" => client.app_id,
+          "instance_id" => instance_id,
+          "connection_id" => @active&.connection_id,
+          "in_flight" => in_flight_count,
+          "max_worker_concurrency" => max_worker_concurrency
+        }
       end
 
       private
@@ -136,6 +185,7 @@ module Inngest
           rescue StandardError => e
             delay = BACKOFF[[failures, BACKOFF.size - 1].min]
             failures += 1
+            @state = :reconnecting if @ever_connected && !@active&.ready?
             @logger.error("[inngest] connection failed: #{e.message}; retrying in #{delay}s")
             break if wait_for_shutdown(delay)
 
@@ -478,6 +528,8 @@ module Inngest
       def flush_buffer(all: false)
         ttl = all ? 0 : (@active&.extend_lease_interval || DEFAULT_INTERVAL)
         @buffer.older_than(ttl).each do |item|
+          # Flushing many replies can take a while; it isn't a stall.
+          @last_tick_at = monotonic_now
           response = api_request(:post, "/v0/connect/flush", body: item.bytes,
                                                              headers: client.default_headers.merge(
                                                                "Content-Type" => "application/protobuf"
@@ -538,9 +590,11 @@ module Inngest
           end
         end
 
+        @last_tick_at = monotonic_now
         @ticker = Thread.new do
           Thread.current.name = "inngest-ticker"
           until @state == :closed || @ticker_stop
+            @last_tick_at = monotonic_now
             begin
               tick
             rescue StandardError => e
