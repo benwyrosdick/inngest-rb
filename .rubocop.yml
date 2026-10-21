@@ -1,0 +1,36 @@
+AllCops:
+  TargetRubyVersion: 3.2
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - "lib/inngest/connect/proto/**/*"
+    - "vendor/**/*"
+
+Style/Documentation:
+  Exclude:
+    - "spec/**/*"
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+Layout/LineLength:
+  Max: 120
+Metrics:
+  Enabled: false
+Naming/MethodParameterName:
+  AllowedNames: [id, ts, v, op, io]
+Style/StringLiteralsInInterpolation:
+  Enabled: false
+Style/ArgumentsForwarding:
+  Enabled: false
+# IO.select works with SSLSocket (via #to_io); IO#wait_readable doesn't.
+Lint/IncompatibleIoSelectWithFiberScheduler:
+  Enabled: false
+Naming/PredicateMethod:
+  Enabled: false
+Style/OneClassPerFile:
+  Exclude:
+    - "examples/**/*"
+    - "spec/**/*"
+Style/Documentation:
+  Exclude:
+    - "examples/**/*"
+    - "spec/**/*"

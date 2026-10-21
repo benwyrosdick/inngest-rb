@@ -1,0 +1,11 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "inngest"
+
+begin
+  Inngest::CLI.new(ARGV).run
+rescue Inngest::ConfigError, Inngest::Connect::Worker::FatalError => e
+  warn "inngest-connect: #{e.message}"
+  exit 1
+end
