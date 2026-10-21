@@ -85,3 +85,39 @@ class SlowStep < Inngest::Function
     end
   end
 end
+
+# Runs three slow steps at once, then combines their results.
+class ParallelFanOut < Inngest::Function
+  trigger event: "demo/parallel"
+
+  def call
+    started = step.run("start") { Time.now.to_f }
+    squares = step.parallel([1, 2, 3].map do |n|
+      lambda do
+        step.run("square-#{n}") do
+          Kernel.sleep(2)
+          n * n
+        end
+      end
+    end)
+    elapsed = step.run("finish") { (Time.now.to_f - started).round(1) }
+    { "squares" => squares, "elapsed" => elapsed }
+  end
+end
+
+# Branches with several steps, including a sleep, joined in race mode.
+class ParallelBranches < Inngest::Function
+  trigger event: "demo/parallel.branches"
+
+  def call
+    step.parallel(
+      lambda {
+        first = step.run("a1") { "a1" }
+        step.sleep("a-pause", 1)
+        [first, step.run("a2") { "a2" }]
+      },
+      -> { step.run("b") { "b" } },
+      mode: :race
+    )
+  end
+end

@@ -124,6 +124,28 @@ step.send_event("notify", name: "order/processed", data: { "order_id" => id })
 
 Step IDs must be stable. Reusing an ID within a run, for example in a loop, is fine.
 
+### Parallel steps
+
+`step.parallel` takes callables and returns their results in order. Inngest runs the steps in them
+concurrently, as separate calls to your workers.
+
+```ruby
+invoice, shipment = step.parallel(
+  -> { step.run("create-invoice") { Invoice.create_for(order_id).id } },
+  -> { step.run("book-shipment") { Shipping.book(order_id) } }
+)
+
+# Fan out over a collection; give each step its own ID.
+results = step.parallel(line_items.map { |item| -> { step.run("reserve-#{item["sku"]}") { reserve(item) } } })
+```
+
+A callable can contain several steps of any type (`run`, `sleep`, `wait_for_event`, `invoke`, ...), which run
+in order within it. By default the function waits for each round of parallel steps to finish before moving on.
+Pass `mode: :race` to let each callable move to its next step as soon as its current one finishes. That helps
+callables with several steps progress independently, at the cost of more calls to your workers.
+
+If a step fails for good, `step.parallel` raises its `Inngest::StepError`.
+
 ### Errors
 
 - If a step raises, Inngest retries it with backoff. Once its retries are exhausted, the step raises
@@ -209,7 +231,6 @@ An HTTP "serve" handler can reuse `Executor` as-is.
 ## Roadmap
 
 - HTTP serve mode (Rack handler / Rails engine) for platforms that can't run long-lived workers
-- Parallel steps
 - Middleware hooks and an RSpec test helper with mocked steps
 - `step.ai.infer` / `step.fetch`, checkpointing, realtime
 - Rails generators (`rails g inngest:install`, `rails g inngest:function`)

@@ -74,6 +74,32 @@ module Inngest
       @execution.resolve(op)&.value!
     end
 
+    # Runs steps in parallel and returns their results, in order.
+    #
+    #   welcome, profile = step.parallel(
+    #     -> { step.run("send-welcome") { Mailer.welcome(id) } },
+    #     -> { step.run("build-profile") { Profile.build(id) } }
+    #   )
+    #
+    #   # Fan out over a collection:
+    #   results = step.parallel(user_ids.map { |id| -> { step.run("sync-#{id}") { sync(id) } } })
+    #
+    # Each callable can contain several steps; they run in order within the
+    # callable. Step IDs must be unique across callables.
+    #
+    # With mode: :wait (the default), the function continues once every
+    # branch's current step has finished. With mode: :race, it continues as
+    # soon as any of them finishes, which lets branches with several steps
+    # progress independently (at the cost of more calls to your worker).
+    def parallel(*callables, mode: :wait)
+      callables = callables.flatten
+      if callables.empty? || !callables.all? { |c| c.respond_to?(:call) }
+        raise ArgumentError, "step.parallel needs one or more callables"
+      end
+
+      @execution.parallel(callables, mode: mode)
+    end
+
     # Sends events as a retriable, memoized step. Returns the event IDs.
     def send_event(id, *events)
       run(id) { @execution.client.send_event(*events) }

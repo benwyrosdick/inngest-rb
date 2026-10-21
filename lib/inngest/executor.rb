@@ -32,9 +32,16 @@ module Inngest
       end
     end
 
-    # Signals the end of a call from deep inside user code. `throw` is used
-    # instead of an exception so `rescue => e` in user code can't swallow it.
-    Interrupt = Struct.new(:result)
+    # Thrown (not raised) to end a call from deep inside user code, carrying the
+    # steps to report. `throw` is used so `rescue` in user code can't swallow it.
+    Interrupt = Struct.new(:ops)
+
+    # Thrown inside step.parallel when Inngest is targeting a step in a
+    # different branch.
+    SKIP = Object.new.freeze
+
+    # A parallel branch that ran to completion.
+    Completed = Struct.new(:value)
 
     attr_reader :client
 
@@ -50,6 +57,7 @@ module Inngest
       @failure = failure
       @step_counts = Hash.new(0)
       @in_step = false
+      @parallel_depth = 0
       @tag = Object.new
     end
 
@@ -62,11 +70,17 @@ module Inngest
       fn = @function_class.new(event: @event, events: @events, step: Step.new(self), run_id: @run_id,
                                attempt: @attempt, logger: client.logger)
 
-      catch(@tag) do
+      outcome = catch(@tag) do
         output = fn.inngest_dispatch(@failure ? :on_failure : :call)
         # Inngest asked for a step we never reached.
-        report([Op.new(id: @target_id, op: "StepNotFound")]) if @target_id
-        done(output)
+        report_not_found if @target_id
+        Completed.new(output)
+      end
+
+      case outcome
+      when Completed then done(outcome.value)
+      when Interrupt then steps_result(outcome.ops)
+      else steps_result([{ "id" => @target_id, "op" => "StepNotFound" }])
       end
     rescue StandardError => e
       error_result(e)
@@ -95,17 +109,62 @@ module Inngest
       return memo if memo
 
       if @target_id
-        # Inngest asked for a different step, so this one is unexpected.
-        report([Op.new(id: @target_id, op: "StepNotFound")]) if @target_id != op.id
+        if @target_id != op.id
+          # In a parallel group the target may be in another branch. Otherwise
+          # this step is unexpected.
+          throw @tag, SKIP if in_parallel?
+          report_not_found
+        end
         return op.op == "StepRun" ? nil : report([op])
       end
 
-      if op.op == "StepRun" && @disable_immediate_execution
+      # New steps found in parallel are collected and planned together, and
+      # after parallel steps Inngest asks for every step to be planned first.
+      if op.op == "StepRun" && (in_parallel? || @disable_immediate_execution)
         op.op = "StepPlanned"
         report([op])
       end
 
       op.op == "StepRun" ? nil : report([op])
+    end
+
+    # Runs each callable, collecting the new steps they find instead of
+    # stopping at the first. Returns the callables' results once all of them
+    # have finished; until then, reports every new step at once so Inngest
+    # runs them concurrently.
+    def parallel(callables, mode:)
+      raise NestedStepError, "step.parallel can't be used inside step.run" if @in_step
+      raise ArgumentError, "unknown parallel mode #{mode.inspect}" unless %i[wait race].include?(mode)
+
+      results = []
+      ops = []
+      skipped = false
+
+      @parallel_depth += 1
+      begin
+        callables.each do |callable|
+          outcome = catch(@tag) { Completed.new(callable.call) }
+          case outcome
+          when Completed then results << outcome.value
+          when Interrupt then ops.concat(outcome.ops)
+          else skipped = true
+          end
+        end
+      ensure
+        @parallel_depth -= 1
+      end
+
+      if ops.any?
+        if mode == :race
+          # Ask Inngest to continue as soon as any branch's step finishes.
+          ops = ops.map { |op| op.merge("opts" => (op["opts"] || {}).merge("parallelMode" => "race")) }
+        end
+        throw @tag, Interrupt.new(ops)
+      end
+      # Inngest targeted a step, but it wasn't in any branch.
+      report_not_found if skipped
+
+      results
     end
 
     # Runs a StepRun's block and reports its result, ending this call.
@@ -162,8 +221,20 @@ module Inngest
       !@max_attempts.nil? && @attempt + 1 >= @max_attempts
     end
 
+    def in_parallel?
+      @parallel_depth.positive?
+    end
+
     def report(ops)
-      throw @tag, Result.new(status: 206, body: JSON.generate(ops.map(&:to_h)), no_retry: false)
+      throw @tag, Interrupt.new(ops.map(&:to_h))
+    end
+
+    def report_not_found
+      report([{ "id" => @target_id, "op" => "StepNotFound" }])
+    end
+
+    def steps_result(ops)
+      Result.new(status: 206, body: JSON.generate(ops), no_retry: false)
     end
 
     def done(output)

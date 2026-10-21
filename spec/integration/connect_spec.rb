@@ -87,6 +87,18 @@ RSpec.describe "Connect worker with the dev server", if: ENV.fetch("INNGEST_INTE
     expect(run["output"]).to eq("succeeded on attempt 1")
   end
 
+  it "runs parallel steps concurrently" do
+    run = send_and_wait("demo/parallel")
+    expect(run["output"]["squares"]).to eq([1, 4, 9])
+    # Three 2-second steps; run one after another they'd take over 6 seconds.
+    expect(run["output"]["elapsed"]).to be < 5
+  end
+
+  it "runs parallel branches with several steps" do
+    run = send_and_wait("demo/parallel.branches")
+    expect(run["output"]).to eq([%w[a1 a2], "b"])
+  end
+
   it "fails without retrying on NonRetriableError" do
     run = send_and_wait("demo/fail", status: "Failed")
     expect(run["output"]).to include("message" => "this can't work")
